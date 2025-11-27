@@ -1,0 +1,99 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer glow -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:0" />
+    </radialGradient>
+
+    <!-- Wheel segment gradients -->
+    <linearGradient id="seg1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6" />
+      <stop offset="100%" style="stop-color:#a855f7" />
+    </linearGradient>
+
+    <linearGradient id="seg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d946ef" />
+      <stop offset="100%" style="stop-color:#e879f9" />
+    </linearGradient>
+
+    <linearGradient id="seg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316" />
+      <stop offset="100%" style="stop-color:#fb923c" />
+    </linearGradient>
+
+    <linearGradient id="seg4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24" />
+      <stop offset="100%" style="stop-color:#fcd34d" />
+    </linearGradient>
+
+    <linearGradient id="center" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fcd34d" />
+      <stop offset="50%" style="stop-color:#fbbf24" />
+      <stop offset="100%" style="stop-color:#f59e0b" />
+    </linearGradient>
+
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Glow effect -->
+  <circle cx="100" cy="100" r="95" fill="url(#glow)"/>
+
+  <!-- Main wheel with 8 segments -->
+  <g filter="url(#shadow)">
+    <!-- Segment 1 (top) -->
+    <path d="M 100 100 L 100 20 A 80 80 0 0 1 156.57 43.43 Z" fill="url(#seg1)"/>
+
+    <!-- Segment 2 -->
+    <path d="M 100 100 L 156.57 43.43 A 80 80 0 0 1 180 100 Z" fill="url(#seg2)"/>
+
+    <!-- Segment 3 -->
+    <path d="M 100 100 L 180 100 A 80 80 0 0 1 156.57 156.57 Z" fill="url(#seg3)"/>
+
+    <!-- Segment 4 -->
+    <path d="M 100 100 L 156.57 156.57 A 80 80 0 0 1 100 180 Z" fill="url(#seg4)"/>
+
+    <!-- Segment 5 -->
+    <path d="M 100 100 L 100 180 A 80 80 0 0 1 43.43 156.57 Z" fill="url(#seg1)"/>
+
+    <!-- Segment 6 -->
+    <path d="M 100 100 L 43.43 156.57 A 80 80 0 0 1 20 100 Z" fill="url(#seg2)"/>
+
+    <!-- Segment 7 -->
+    <path d="M 100 100 L 20 100 A 80 80 0 0 1 43.43 43.43 Z" fill="url(#seg3)"/>
+
+    <!-- Segment 8 -->
+    <path d="M 100 100 L 43.43 43.43 A 80 80 0 0 1 100 20 Z" fill="url(#seg4)"/>
+
+    <!-- White dividing lines -->
+    <line x1="100" y1="20" x2="100" y2="180" stroke="white" stroke-width="3"/>
+    <line x1="20" y1="100" x2="180" y2="100" stroke="white" stroke-width="3"/>
+    <line x1="43.43" y1="43.43" x2="156.57" y2="156.57" stroke="white" stroke-width="3"/>
+    <line x1="156.57" y1="43.43" x2="43.43" y2="156.57" stroke="white" stroke-width="3"/>
+
+    <!-- Center hub -->
+    <circle cx="100" cy="100" r="35" fill="url(#center)" stroke="white" stroke-width="4"/>
+
+    <!-- Music note in center -->
+    <g transform="translate(85, 75)">
+      <path d="M 10 5 L 10 25 C 10 28 8 30 5 30 C 2 30 0 28 0 25 C 0 22 2 20 5 20 C 6 20 7 20.5 8 21 L 8 8 L 20 5 L 20 18 C 20 21 18 23 15 23 C 12 23 10 21 10 18 C 10 15 12 13 15 13 C 16 13 17 13.5 18 14 L 18 7 L 10 9 Z"
+            fill="white"
+            transform="scale(1.5)"/>
+    </g>
+
+    <!-- Outer rim -->
+    <circle cx="100" cy="100" r="80" fill="none" stroke="white" stroke-width="6"/>
+  </g>
+
+  <!-- Small decorative music notes around the wheel -->
+  <text x="100" y="10" font-size="16" fill="white" text-anchor="middle" font-weight="bold">♪</text>
+  <text x="190" y="105" font-size="16" fill="white" text-anchor="middle" font-weight="bold">♪</text>
+  <text x="100" y="198" font-size="16" fill="white" text-anchor="middle" font-weight="bold">♪</text>
+  <text x="10" y="105" font-size="16" fill="white" text-anchor="middle" font-weight="bold">♪</text>
+  <text x="30" y="30" font-size="14" fill="white" text-anchor="middle" font-weight="bold">♫</text>
+  <text x="170" y="30" font-size="14" fill="white" text-anchor="middle" font-weight="bold">♫</text>
+  <text x="170" y="175" font-size="14" fill="white" text-anchor="middle" font-weight="bold">♫</text>
+  <text x="30" y="175" font-size="14" fill="white" text-anchor="middle" font-weight="bold">♫</text>
+</svg>
