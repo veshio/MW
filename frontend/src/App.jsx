@@ -3,6 +3,7 @@ import './App.css'
 import logo from './assets/logo.svg'
 import { apiClient } from './services/apiClient'
 import { audioPlayer } from './services/audioPlayer'
+import { authService } from './services/authService'
 
 // LocalStorage-based storage for multiplayer across tabs
 const mockStorage = {
@@ -39,22 +40,112 @@ function App() {
   const [playerId, setPlayerId] = useState(null)
   const [game, setGame] = useState(null)
 
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+
   // Spotify API state
   const [playlists, setPlaylists] = useState([])
   const [loadingPlaylists, setLoadingPlaylists] = useState(false)
   const [playlistTracks, setPlaylistTracks] = useState({}) // Cache tracks by playlistId
 
-  // Load playlists from API on mount
+  // Handle OAuth callback and check authentication on mount
   useEffect(() => {
-    loadPlaylists()
+    const handleAuth = async () => {
+      // Check for session token in URL (OAuth callback)
+      const urlParams = new URLSearchParams(window.location.search)
+      const sessionToken = urlParams.get('session')
+      const error = urlParams.get('error')
+
+      if (error) {
+        alert('Authentication failed. Please try again.')
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setAuthLoading(false)
+        return
+      }
+
+      if (sessionToken) {
+        try {
+          const userData = await authService.handleCallback(sessionToken)
+          setUser(userData)
+          setIsAuthenticated(true)
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname)
+
+          // Check if user was trying to host a game before login
+          const hostIntent = localStorage.getItem('host_intent')
+          if (hostIntent === 'true') {
+            localStorage.removeItem('host_intent')
+            // Small delay to ensure state is updated
+            setTimeout(() => {
+              createRoom(true) // Pass true to skip auth check
+            }, 100)
+          }
+        } catch (error) {
+          console.error('Failed to handle OAuth callback:', error)
+          alert('Failed to complete login. Please try again.')
+        }
+      } else {
+        // Check if already authenticated
+        const authenticated = authService.isAuthenticated()
+        setIsAuthenticated(authenticated)
+        if (authenticated) {
+          setUser(authService.getUser())
+        }
+      }
+
+      setAuthLoading(false)
+    }
+
+    handleAuth()
   }, [])
+
+  // Playlists will be loaded when room is created/joined, not automatically on auth
+
+  const handleLogin = async () => {
+    try {
+      await authService.login()
+    } catch (error) {
+      console.error('Login failed:', error)
+      alert('Failed to initiate login. Please try again.')
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await authService.logout()
+      setIsAuthenticated(false)
+      setUser(null)
+      setPlaylists([])
+      setView('home')
+      setGame(null)
+      setRoomCode('')
+    } catch (error) {
+      console.error('Logout failed:', error)
+    }
+  }
 
   const loadPlaylists = async () => {
     setLoadingPlaylists(true)
     try {
+      // If we already have playlists in the game state (non-host players), use those
+      if (game?.playlists && game.playlists.length > 0) {
+        console.log(`✓ Using ${game.playlists.length} playlists from game state`)
+        setPlaylists(game.playlists)
+        setLoadingPlaylists(false)
+        return
+      }
+
+      // Host fetches playlists from Spotify
       const data = await apiClient.fetchPlaylists()
       setPlaylists(data)
       console.log(`✓ Loaded ${data.length} playlists from Spotify`)
+
+      // Store playlists in game state so non-host players can access them
+      if (game && game.hostId === playerId) {
+        await updateGame({ playlists: data })
+      }
     } catch (error) {
       console.error('Failed to load playlists:', error)
       alert('Failed to load playlists from Spotify. Make sure the backend is running!')
@@ -131,7 +222,51 @@ function App() {
     await window.storage.set(`game:${roomCode}`, JSON.stringify(newState))
   }
 
-  const createRoom = async () => {
+  const createRoom = async (skipAuthCheck = false) => {
+    console.log('createRoom called - skipAuthCheck:', skipAuthCheck, 'isAuthenticated:', isAuthenticated)
+    // Host must be authenticated to create room (unless called from OAuth callback)
+    if (!skipAuthCheck) {
+      if (!isAuthenticated) {
+        console.log('User not authenticated, initiating login...')
+        // Store intent to host after login
+        localStorage.setItem('host_intent', 'true')
+        // Initiate login flow
+        try {
+          console.log('Calling authService.login()...')
+          await authService.login()
+          console.log('Login initiated, should redirect to Spotify')
+          return // Login will redirect, so return here
+        } catch (error) {
+          console.error('Login failed:', error)
+          localStorage.removeItem('host_intent')
+          alert('Failed to log in with Spotify. Please try again.')
+          return
+        }
+      } else {
+        // Validate session is still valid on backend
+        console.log('Validating session with backend...')
+        const isValid = await authService.validateSession()
+        if (!isValid) {
+          console.log('Session invalid, re-authenticating...')
+          setIsAuthenticated(false)
+          setUser(null)
+          // Store intent and trigger login
+          localStorage.setItem('host_intent', 'true')
+          try {
+            await authService.login()
+            return
+          } catch (error) {
+            console.error('Login failed:', error)
+            localStorage.removeItem('host_intent')
+            alert('Failed to log in with Spotify. Please try again.')
+            return
+          }
+        }
+      }
+    }
+
+    console.log('Creating room (authenticated or skipping auth check)...')
+
     const code = genCode()
     const hostId = Date.now().toString()
     const newGame = {
@@ -139,6 +274,7 @@ function App() {
       hostId,
       status: 'lobby',
       players: [],
+      playlists: [], // Shared playlists for all players
       djIdx: 0,
       song: null,
       history: [],
@@ -154,6 +290,8 @@ function App() {
     setPlayerId(hostId)
     setGame(newGame)
     setView('host')
+    // Load playlists now that we're hosting
+    loadPlaylists()
   }
 
   const joinRoom = async () => {
@@ -163,8 +301,11 @@ function App() {
       if (result) {
         setPlayerId(Date.now().toString())
         setRoomCode(joinCode.toUpperCase())
-        setGame(JSON.parse(result.value))
+        const gameData = JSON.parse(result.value)
+        setGame(gameData)
         setView('player')
+        // Load playlists from game state (non-host doesn't fetch from Spotify)
+        loadPlaylists()
       } else alert('Room not found!')
     } catch (e) {
       alert('Room not found!')
@@ -197,7 +338,7 @@ function App() {
       const tracks = await loadPlaylistTracks(pl.id)
 
       if (!tracks || tracks.length === 0) {
-        alert('No playable tracks found in this playlist!')
+        alert('⚠️ No playable tracks in this playlist!\n\nSpotify only provides 30-second previews for some tracks. Try:\n• A different playlist (popular/curated playlists work better)\n• Spotify\'s own playlists (Today\'s Top Hits, RapCaviar, etc.)\n• Playlists with older/mainstream songs')
         return
       }
 
@@ -369,6 +510,20 @@ function App() {
     })
   }
 
+  // Loading screen while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin-slow mb-6">
+            <img src={logo} alt="Musical Wheelhouse" className="w-32 h-32 drop-shadow-2xl" />
+          </div>
+          <div className="text-white text-2xl font-bold">Loading...</div>
+        </div>
+      </div>
+    )
+  }
+
   // HOME
   if (view === 'home') {
     return (
@@ -378,6 +533,25 @@ function App() {
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl"></div>
 
         <div className="max-w-2xl w-full relative z-10">
+          {/* User Info & Logout - only show if authenticated */}
+          {isAuthenticated && user && (
+            <div className="bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-6 flex justify-between items-center border border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl">🎧</div>
+                <div>
+                  <div className="text-white font-bold">{user.displayName}</div>
+                  <div className="text-white/60 text-sm">Logged in with Spotify</div>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-semibold text-sm border border-white/20 transition"
+              >
+                Logout
+              </button>
+            </div>
+          )}
+
           {/* Logo & Title */}
           <div className="text-center mb-12">
             {/* Custom SVG Logo */}
@@ -397,11 +571,16 @@ function App() {
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 shadow-2xl border border-white/20">
               <h3 className="text-xl font-bold text-amber-400 mb-4 text-center uppercase tracking-wide">Host a Game</h3>
               <button
-                onClick={createRoom}
+                onClick={() => createRoom()}
                 className="w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-gray-900 py-5 rounded-xl font-black text-xl shadow-lg shadow-amber-500/50 transform hover:scale-[1.02] transition"
               >
                 START NEW GAME
               </button>
+              {!isAuthenticated && (
+                <p className="text-white/40 text-sm mt-3 text-center">
+                  You'll need to log in with Spotify to host
+                </p>
+              )}
             </div>
 
             {/* Join Card */}
@@ -429,6 +608,9 @@ function App() {
               >
                 JOIN GAME
               </button>
+              <p className="text-white/40 text-sm mt-3 text-center">
+                No Spotify account needed to join
+              </p>
             </div>
           </div>
         </div>

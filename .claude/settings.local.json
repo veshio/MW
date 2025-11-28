@@ -3,7 +3,14 @@
     "allow": [
       "Bash(find:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev:*)",
+      "WebFetch(domain:developer.spotify.com)",
+      "Bash(node test-search.js:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

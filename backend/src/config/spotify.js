@@ -6,8 +6,6 @@ import fetch from 'node-fetch';
  */
 class SpotifyClient {
   constructor() {
-    this.clientId = process.env.SPOTIFY_CLIENT_ID;
-    this.clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
     this.accessToken = null;
     this.tokenExpiry = null;
   }
@@ -22,9 +20,17 @@ class SpotifyClient {
       return this.accessToken;
     }
 
-    // Get new token via Client Credentials flow
+    // Read env vars at runtime instead of constructor
+    const clientId = process.env.SPOTIFY_CLIENT_ID;
+    const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      throw new Error('SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in environment');
+    }
+
+    // Get new token via Client Credentials flow - TRIM whitespace!
     const credentials = Buffer.from(
-      `${this.clientId}:${this.clientSecret}`
+      `${clientId.trim()}:${clientSecret.trim()}`
     ).toString('base64');
 
     try {
@@ -37,11 +43,12 @@ class SpotifyClient {
         body: 'grant_type=client_credentials'
       });
 
-      if (!response.ok) {
-        throw new Error(`Spotify auth failed: ${response.statusText}`);
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Spotify auth error response:', data);
+        throw new Error(`Spotify auth failed: ${response.statusText} - ${JSON.stringify(data)}`);
+      }
       this.accessToken = data.access_token;
       this.tokenExpiry = Date.now() + (data.expires_in * 1000);
 
@@ -54,7 +61,7 @@ class SpotifyClient {
   }
 
   /**
-   * Make authenticated request to Spotify API
+   * Make authenticated request to Spotify API using Client Credentials (app-level)
    */
   async request(url, options = {}) {
     const token = await this.getAccessToken();
@@ -68,6 +75,31 @@ class SpotifyClient {
 
     if (!response.ok) {
       throw new Error(`Spotify API error: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Make authenticated request using user's access token (user-level)
+   * This gives access to user's personal playlists and data
+   */
+  async requestWithUserToken(url, userToken, options = {}) {
+    if (!userToken) {
+      throw new Error('User token required for this request');
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${userToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Spotify API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     return response.json();

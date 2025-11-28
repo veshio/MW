@@ -1,15 +1,39 @@
 import express from 'express';
 import { spotifyService } from '../services/spotifyService.js';
+import { getSession } from './auth.js';
 
 const router = express.Router();
 
 /**
- * GET /api/spotify/playlists
- * Get available playlists from the app's Spotify account
+ * Middleware to require authentication
  */
-router.get('/playlists', async (req, res, next) => {
+function requireAuth(req, res, next) {
+  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!sessionToken) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const session = getSession(sessionToken);
+
+  if (!session) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+
+  // Attach session to request
+  req.session = session;
+  req.sessionToken = sessionToken;
+
+  next();
+}
+
+/**
+ * GET /api/spotify/playlists
+ * Get Spotify's featured/curated playlists (better preview coverage)
+ */
+router.get('/playlists', requireAuth, async (req, res, next) => {
   try {
-    const playlists = await spotifyService.getPlaylists();
+    const playlists = await spotifyService.getFeaturedPlaylists(req.sessionToken);
     res.json({ playlists });
   } catch (error) {
     next(error);
@@ -20,9 +44,9 @@ router.get('/playlists', async (req, res, next) => {
  * GET /api/spotify/playlists/:id/tracks
  * Get tracks from a specific playlist (only tracks with preview URLs)
  */
-router.get('/playlists/:id/tracks', async (req, res, next) => {
+router.get('/playlists/:id/tracks', requireAuth, async (req, res, next) => {
   try {
-    const tracks = await spotifyService.getPlaylistTracks(req.params.id);
+    const tracks = await spotifyService.getPlaylistTracks(req.params.id, req.sessionToken);
     res.json({ tracks });
   } catch (error) {
     next(error);
@@ -33,9 +57,9 @@ router.get('/playlists/:id/tracks', async (req, res, next) => {
  * GET /api/spotify/track/:id
  * Get specific track details
  */
-router.get('/track/:id', async (req, res, next) => {
+router.get('/track/:id', requireAuth, async (req, res, next) => {
   try {
-    const track = await spotifyService.getTrack(req.params.id);
+    const track = await spotifyService.getTrack(req.params.id, req.sessionToken);
     res.json({ track });
   } catch (error) {
     next(error);

@@ -1,4 +1,5 @@
 import { spotifyClient } from '../config/spotify.js';
+import { getAccessToken } from '../routes/auth.js';
 
 /**
  * In-memory cache for Spotify data
@@ -16,46 +17,73 @@ const cache = {
  */
 export const spotifyService = {
   /**
-   * Get curated playlists from the app's Spotify account
+   * Get popular public playlists from Spotify using Search API
+   * Note: Spotify removed the /browse/featured-playlists endpoint on Nov 27, 2024
+   * We now use the search endpoint to find popular public playlists
    */
-  async getPlaylists() {
-    // Return cached playlists if available and fresh
-    if (cache.playlists && Date.now() - cache.playlists.timestamp < cache.cacheTTL) {
-      console.log('✓ Returning cached playlists');
-      return cache.playlists.data;
+  async getFeaturedPlaylists(sessionToken) {
+    const userToken = getAccessToken(sessionToken);
+
+    if (!userToken) {
+      throw new Error('Valid session required to fetch playlists');
     }
 
-    console.log('Fetching playlists from Spotify...');
-    const userId = process.env.SPOTIFY_USER_ID;
+    const cacheKey = 'public_playlists';
 
-    if (!userId) {
-      throw new Error('SPOTIFY_USER_ID not configured');
+    if (cache.playlists && cache.playlists[cacheKey] && Date.now() - cache.playlists[cacheKey].timestamp < cache.cacheTTL) {
+      console.log('✓ Returning cached public playlists');
+      return cache.playlists[cacheKey].data;
     }
+
+    console.log('Searching for popular public playlists using Search API...');
 
     try {
-      const data = await spotifyClient.request(
-        `https://api.spotify.com/v1/users/${userId}/playlists?limit=50`
-      );
+      // Search for popular playlists using different queries
+      // We'll search for several popular genres/topics to get a variety
+      const queries = ['pop hits', 'top songs', 'rock classics', 'hip hop', 'chill vibes'];
+      const allPlaylists = [];
 
-      // Transform to app format
-      const playlists = data.items.map(pl => ({
-        id: pl.id,
-        name: pl.name,
-        description: pl.description || '',
-        image: pl.images?.[0]?.url || null,
-        trackCount: pl.tracks.total
-      }));
+      for (const query of queries) {
+        const data = await spotifyClient.requestWithUserToken(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=10`,
+          userToken
+        );
+
+        if (data.playlists && data.playlists.items) {
+          allPlaylists.push(...data.playlists.items);
+        }
+      }
+
+      // Remove duplicates, filter invalid playlists, and transform to app format
+      const seenIds = new Set();
+      const playlists = allPlaylists
+        .filter(pl => pl && pl.id && pl.name) // Filter out null/invalid playlists
+        .filter(pl => {
+          if (seenIds.has(pl.id)) return false;
+          seenIds.add(pl.id);
+          return true;
+        })
+        .map(pl => ({
+          id: pl.id,
+          name: pl.name,
+          description: pl.description || '',
+          image: pl.images?.[0]?.url || null,
+          trackCount: pl.tracks?.total || 0,
+          owner: pl.owner?.display_name || 'Unknown'
+        }))
+        .slice(0, 50); // Limit to 50 playlists total
 
       // Cache the result
-      cache.playlists = {
+      if (!cache.playlists) cache.playlists = {};
+      cache.playlists[cacheKey] = {
         data: playlists,
         timestamp: Date.now()
       };
 
-      console.log(`✓ Fetched ${playlists.length} playlists`);
+      console.log(`✓ Found ${playlists.length} public playlists`);
       return playlists;
     } catch (error) {
-      console.error('Error fetching playlists:', error);
+      console.error('Error searching for public playlists:', error);
       throw error;
     }
   },
@@ -64,7 +92,13 @@ export const spotifyService = {
    * Get tracks from a specific playlist
    * Only returns tracks with preview URLs
    */
-  async getPlaylistTracks(playlistId) {
+  async getPlaylistTracks(playlistId, sessionToken) {
+    const userToken = getAccessToken(sessionToken);
+
+    if (!userToken) {
+      throw new Error('Valid session required to fetch tracks');
+    }
+
     const cacheKey = playlistId;
     const cached = cache.tracks.get(cacheKey);
 
@@ -77,11 +111,14 @@ export const spotifyService = {
     console.log(`Fetching tracks for playlist ${playlistId}...`);
 
     try {
-      const data = await spotifyClient.request(
-        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`
+      // Fetch more tracks to increase chance of finding ones with previews
+      const data = await spotifyClient.requestWithUserToken(
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`,
+        userToken
       );
 
       // Transform to app format and filter tracks with preview URLs
+      const totalTracks = data.items.filter(item => item.track).length;
       const tracks = data.items
         .filter(item => item.track && item.track.preview_url) // Only tracks with previews
         .map(item => ({
@@ -100,7 +137,7 @@ export const spotifyService = {
         timestamp: Date.now()
       });
 
-      console.log(`✓ Fetched ${tracks.length} tracks with previews`);
+      console.log(`✓ Fetched ${tracks.length}/${totalTracks} tracks with previews (${Math.round(tracks.length/totalTracks*100)}%)`);
       return tracks;
     } catch (error) {
       console.error(`Error fetching tracks for playlist ${playlistId}:`, error);
@@ -111,10 +148,17 @@ export const spotifyService = {
   /**
    * Get specific track details
    */
-  async getTrack(trackId) {
+  async getTrack(trackId, sessionToken) {
+    const userToken = getAccessToken(sessionToken);
+
+    if (!userToken) {
+      throw new Error('Valid session required to fetch track');
+    }
+
     try {
-      const track = await spotifyClient.request(
-        `https://api.spotify.com/v1/tracks/${trackId}`
+      const track = await spotifyClient.requestWithUserToken(
+        `https://api.spotify.com/v1/tracks/${trackId}`,
+        userToken
       );
 
       return {

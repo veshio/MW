@@ -3,15 +3,35 @@
  * Handles all communication with the Express/Spotify backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { authService } from './authService';
+
+// Use empty string to make requests relative (will use Vite proxy)
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 class ApiClient {
   /**
-   * Fetch all available playlists
+   * Get authorization headers
+   */
+  getHeaders() {
+    const token = authService.getSessionToken();
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    };
+  }
+
+  /**
+   * Fetch all available playlists (requires authentication)
    */
   async fetchPlaylists() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/spotify/playlists`);
+      const response = await fetch(`${API_BASE_URL}/api/spotify/playlists`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in with Spotify.');
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch playlists: ${response.statusText}`);
@@ -26,13 +46,20 @@ class ApiClient {
   }
 
   /**
-   * Fetch tracks from a specific playlist
+   * Fetch tracks from a specific playlist (requires authentication)
    */
   async fetchPlaylistTracks(playlistId) {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/spotify/playlists/${playlistId}/tracks`
+        `${API_BASE_URL}/api/spotify/playlists/${playlistId}/tracks`,
+        {
+          headers: this.getHeaders()
+        }
       );
+
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in with Spotify.');
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch playlist tracks: ${response.statusText}`);
@@ -47,11 +74,17 @@ class ApiClient {
   }
 
   /**
-   * Fetch specific track details
+   * Fetch specific track details (requires authentication)
    */
   async fetchTrack(trackId) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/spotify/track/${trackId}`);
+      const response = await fetch(`${API_BASE_URL}/api/spotify/track/${trackId}`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in with Spotify.');
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch track: ${response.statusText}`);
