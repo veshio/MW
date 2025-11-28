@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // Bind to all interfaces - accessible via localhost and 127.0.0.1
     port: 5173,
+    strictPort: true, // DO NOT change port - fail if 5173 is in use
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

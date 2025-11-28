@@ -12,3 +12,13 @@
 .animate-spin-slow {
   animation: spin-slow 20s linear infinite;
 }
+
+/* Hide scrollbar while keeping scroll functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}

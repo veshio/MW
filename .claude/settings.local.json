@@ -10,7 +10,11 @@
       "Bash(npm run dev:*)",
       "WebFetch(domain:developer.spotify.com)",
       "Bash(node test-search.js:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(taskkill //F //PID 46456)",
+      "Bash(taskkill //F //PID 46356)",
+      "Bash(echo:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

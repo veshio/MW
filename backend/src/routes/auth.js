@@ -13,7 +13,7 @@ const getSpotifyConfig = () => ({
   clientId: process.env.SPOTIFY_CLIENT_ID,
   clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
   redirectUri: process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/callback',
-  frontendUrl: process.env.FRONTEND_URL || 'http://127.0.0.1:5176'
+  frontendUrl: process.env.FRONTEND_URL || 'http://127.0.0.1:5173'
 });
 
 // Required scopes for the app
@@ -277,6 +277,27 @@ router.post('/logout', (req, res) => {
   }
 
   res.json({ success: true });
+});
+
+/**
+ * GET /api/auth/token
+ * Returns the access token for Web Playback SDK initialization
+ */
+router.get('/token', (req, res) => {
+  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!sessionToken || !sessions.has(sessionToken)) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+
+  const session = sessions.get(sessionToken);
+
+  // Check if token is expired
+  if (session.expiresAt <= Date.now()) {
+    return res.status(401).json({ error: 'Token expired' });
+  }
+
+  res.json({ accessToken: session.accessToken });
 });
 
 /**

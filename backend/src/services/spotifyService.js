@@ -38,26 +38,65 @@ export const spotifyService = {
     console.log('Searching for popular public playlists using Search API...');
 
     try {
-      // Search for popular playlists using different queries
-      // We'll search for several popular genres/topics to get a variety
-      const queries = ['pop hits', 'top songs', 'rock classics', 'hip hop', 'chill vibes'];
+      // Search for playlists across 10 different genres for MORE variety
+      // Each time we mix up the specific searches within each genre
+      const genreQueries = {
+        pop: ['pop music', 'pop hits', 'modern pop', 'pop party', 'top pop', 'pop 2024'],
+        rock: ['rock classics', 'rock hits', 'alternative rock', 'indie rock', 'modern rock', 'rock anthems'],
+        hiphop: ['hip hop', 'rap hits', 'r&b', 'urban', 'rap 2024', 'hip hop classics'],
+        electronic: ['electronic', 'EDM', 'dance music', 'house music', 'techno', 'dubstep'],
+        indie: ['indie music', 'indie folk', 'indie pop', 'indie alternative', 'indie rock', 'indie artists'],
+        jazz: ['jazz classics', 'smooth jazz', 'jazz vibes', 'modern jazz', 'jazz piano', 'jazz cafe'],
+        country: ['country hits', 'country music', 'modern country', 'country classics', 'country roads'],
+        latin: ['latin hits', 'reggaeton', 'latin pop', 'spanish music', 'latin vibes', 'salsa'],
+        metal: ['metal music', 'heavy metal', 'metal classics', 'rock metal', 'metalcore'],
+        funk: ['funk music', 'funk classics', 'soul funk', 'disco funk', 'groovy funk']
+      };
+
+      // Randomly select TWO queries from each genre for more variety and volume
+      // Keep track of genre for each query
+      const selectedQueries = Object.entries(genreQueries).flatMap(([genre, queries]) => {
+        // Shuffle the queries
+        const shuffled = [...queries].sort(() => Math.random() - 0.5);
+        // Take 2 random queries from each genre and tag with genre
+        return shuffled.slice(0, 2).map(query => ({ query, genre }));
+      });
+
       const allPlaylists = [];
 
-      for (const query of queries) {
+      for (const { query, genre } of selectedQueries) {
         const data = await spotifyClient.requestWithUserToken(
           `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=10`,
           userToken
         );
 
         if (data.playlists && data.playlists.items) {
-          allPlaylists.push(...data.playlists.items);
+          // Tag each playlist with its genre
+          const taggedPlaylists = data.playlists.items.map(pl => ({ ...pl, _genre: genre }));
+          allPlaylists.push(...taggedPlaylists);
         }
       }
 
-      // Remove duplicates, filter invalid playlists, and transform to app format
+      // Low-effort playlist filter - exclude generic/lazy titles
+      const lowEffortPatterns = [
+        /^top\s+(songs?|hits?|playlist)/i,
+        /^best\s+(songs?|hits?|playlist)/i,
+        /^my\s+playlist/i,
+        /^playlist\s+\d+/i,
+        /^untitled/i,
+        /^new\s+playlist/i,
+        /^\d+$/  // Just numbers
+      ];
+
+      const isLowEffort = (name) => {
+        return lowEffortPatterns.some(pattern => pattern.test(name));
+      };
+
+      // Remove duplicates, filter invalid/low-effort playlists, and transform to app format
       const seenIds = new Set();
       const playlists = allPlaylists
         .filter(pl => pl && pl.id && pl.name) // Filter out null/invalid playlists
+        .filter(pl => !isLowEffort(pl.name)) // Filter out low-effort playlists
         .filter(pl => {
           if (seenIds.has(pl.id)) return false;
           seenIds.add(pl.id);
@@ -69,9 +108,17 @@ export const spotifyService = {
           description: pl.description || '',
           image: pl.images?.[0]?.url || null,
           trackCount: pl.tracks?.total || 0,
-          owner: pl.owner?.display_name || 'Unknown'
+          owner: pl.owner?.display_name || 'Unknown',
+          genre: pl._genre // Include genre tag
         }))
-        .slice(0, 50); // Limit to 50 playlists total
+        // Sort by genre first, then shuffle within each genre
+        .sort((a, b) => {
+          if (a.genre === b.genre) {
+            return Math.random() - 0.5; // Shuffle within genre
+          }
+          return a.genre.localeCompare(b.genre); // Sort by genre alphabetically
+        })
+        .slice(0, 100); // Limit to 100 playlists total (doubled!)
 
       // Cache the result
       if (!cache.playlists) cache.playlists = {};
@@ -90,7 +137,7 @@ export const spotifyService = {
 
   /**
    * Get tracks from a specific playlist
-   * Only returns tracks with preview URLs
+   * Returns all tracks for Web Playback SDK
    */
   async getPlaylistTracks(playlistId, sessionToken) {
     const userToken = getAccessToken(sessionToken);
@@ -111,24 +158,23 @@ export const spotifyService = {
     console.log(`Fetching tracks for playlist ${playlistId}...`);
 
     try {
-      // Fetch more tracks to increase chance of finding ones with previews
+      // Fetch tracks for Web Playback SDK (Premium playback)
       const data = await spotifyClient.requestWithUserToken(
         `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`,
         userToken
       );
 
-      // Transform to app format and filter tracks with preview URLs
-      const totalTracks = data.items.filter(item => item.track).length;
+      // Transform to app format - include all valid tracks
       const tracks = data.items
-        .filter(item => item.track && item.track.preview_url) // Only tracks with previews
+        .filter(item => item.track && item.track.id) // Only valid tracks
         .map(item => ({
           id: item.track.id,
           name: item.track.name,
           artist: item.track.artists[0].name,
           album: item.track.album.name,
           albumArt: item.track.album.images?.[0]?.url || null,
-          previewUrl: item.track.preview_url, // 30-second preview
-          uri: item.track.uri // For future full playback
+          previewUrl: item.track.preview_url, // May be null, but we use SDK now
+          uri: item.track.uri // For Web Playback SDK
         }));
 
       // Cache the result
@@ -137,7 +183,7 @@ export const spotifyService = {
         timestamp: Date.now()
       });
 
-      console.log(`✓ Fetched ${tracks.length}/${totalTracks} tracks with previews (${Math.round(tracks.length/totalTracks*100)}%)`);
+      console.log(`✓ Fetched ${tracks.length} tracks for Web Playback SDK`);
       return tracks;
     } catch (error) {
       console.error(`Error fetching tracks for playlist ${playlistId}:`, error);

@@ -99,6 +99,31 @@ class ApiClient {
   }
 
   /**
+   * Get Spotify access token for Web Playback SDK
+   */
+  async getAccessToken() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/token`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in with Spotify.');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch access token: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.accessToken;
+    } catch (error) {
+      console.error('API Client - getAccessToken error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Check backend health
    */
   async healthCheck() {
