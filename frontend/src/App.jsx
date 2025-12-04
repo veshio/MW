@@ -5,6 +5,7 @@ import { apiClient } from './services/apiClient'
 import { audioPlayer } from './services/audioPlayer'
 import { authService } from './services/authService'
 import { spotifyPlayer } from './services/spotifyPlayer'
+import { spotifyConnect } from './services/spotifyConnect'
 
 // LocalStorage-based storage for multiplayer across tabs
 const mockStorage = {
@@ -52,6 +53,12 @@ function App() {
   const [playlistTracks, setPlaylistTracks] = useState({}) // Cache tracks by playlistId
   const [playerReady, setPlayerReady] = useState(false)
   const [currentlyPlayingUri, setCurrentlyPlayingUri] = useState(null)
+
+  // Spotify Connect API state (for mobile browsers)
+  const [availableDevices, setAvailableDevices] = useState([])
+  const [selectedDevice, setSelectedDevice] = useState(null)
+  const [useConnectAPI, setUseConnectAPI] = useState(false)
+  const [loadingDevices, setLoadingDevices] = useState(false)
 
   // Handle OAuth callback and check authentication on mount
   useEffect(() => {
@@ -113,16 +120,46 @@ function App() {
           const accessToken = await apiClient.getAccessToken()
           await spotifyPlayer.initialize(accessToken)
           setPlayerReady(true)
-          console.log('✓ Spotify Player ready')
+          setUseConnectAPI(false) // SDK worked, don't use Connect API
+          console.log('✓ Spotify Player ready (Web Playback SDK)')
         } catch (error) {
-          console.error('Failed to initialize Spotify Player:', error)
-          // Player will fall back to preview URLs if available
+          console.warn('Web Playback SDK failed (likely mobile browser), will use Connect API:', error)
+          setPlayerReady(false)
+          setUseConnectAPI(true) // SDK failed, use Connect API
         }
       }
     }
 
     initPlayer()
   }, [isAuthenticated])
+
+  // Fetch available Spotify devices for Connect API (mobile browsers)
+  useEffect(() => {
+    const fetchDevices = async () => {
+      if (isAuthenticated && useConnectAPI && !loadingDevices) {
+        setLoadingDevices(true)
+        try {
+          const sessionToken = authService.getSessionToken()
+          const response = await spotifyConnect.getDevices(sessionToken)
+          if (response.devices && response.devices.length > 0) {
+            setAvailableDevices(response.devices)
+            // Auto-select first active device, or first device if none active
+            const activeDevice = response.devices.find(d => d.is_active)
+            setSelectedDevice(activeDevice || response.devices[0])
+            console.log('✓ Devices loaded:', response.devices.length)
+          } else {
+            console.log('No Spotify devices available. Please open Spotify on a device.')
+          }
+        } catch (error) {
+          console.error('Failed to fetch devices:', error)
+        } finally {
+          setLoadingDevices(false)
+        }
+      }
+    }
+
+    fetchDevices()
+  }, [isAuthenticated, useConnectAPI])
 
   // Playlists will be loaded when room is created/joined, not automatically on auth
 
@@ -240,30 +277,45 @@ function App() {
 
       // Only play if we're within the 30-second window AND we haven't started this track yet
       if (elapsed < 30000 && elapsed >= 0 && trackUri !== currentlyPlayingUri) {
-        // Use Spotify Web Playback SDK if available
-        if (playerReady && trackUri) {
-          // Calculate remaining time
+        // Route to Web Playback SDK (desktop) or Connect API (mobile)
+        if (playerReady && !useConnectAPI && trackUri) {
+          // Desktop: Use Web Playback SDK (embedded in browser)
           const remainingMs = 30000 - elapsed
           setCurrentlyPlayingUri(trackUri)
-          console.log(`🎵 HOST playing track: ${trackUri}, remaining: ${remainingMs}ms`)
+          console.log(`🎵 HOST playing track via Web Playback SDK: ${trackUri}, remaining: ${remainingMs}ms`)
           spotifyPlayer.playTrack(trackUri, remainingMs).catch(err => {
             console.error('❌ Spotify playback failed:', err)
           })
+        } else if (useConnectAPI && selectedDevice && trackUri) {
+          // Mobile: Use Connect API (control external device)
+          setCurrentlyPlayingUri(trackUri)
+          console.log(`🎵 HOST playing track via Connect API on device: ${selectedDevice.name}`)
+          const sessionToken = authService.getSessionToken()
+          spotifyConnect.play(sessionToken, trackUri, selectedDevice.id).catch(err => {
+            console.error('❌ Connect API playback failed:', err)
+          })
         } else {
-          console.log('⚠️ Cannot play - playerReady:', playerReady, 'trackUri:', trackUri)
+          console.log('⚠️ Cannot play - playerReady:', playerReady, 'useConnectAPI:', useConnectAPI, 'selectedDevice:', selectedDevice, 'trackUri:', trackUri)
         }
       } else {
         console.log('⏭️ Skipping playback - elapsed:', elapsed, 'already playing:', trackUri === currentlyPlayingUri)
       }
     } else if (!isPlaying && isHost) {
       console.log('⏸️ Pausing playback')
-      if (playerReady) {
+      if (playerReady && !useConnectAPI) {
+        // Desktop: Pause Web Playback SDK
         spotifyPlayer.pause()
+      } else if (useConnectAPI && selectedDevice) {
+        // Mobile: Pause via Connect API
+        const sessionToken = authService.getSessionToken()
+        spotifyConnect.pause(sessionToken, selectedDevice.id).catch(err => {
+          console.error('❌ Connect API pause failed:', err)
+        })
       }
       // Reset currentlyPlayingUri so the track can be replayed
       setCurrentlyPlayingUri(null)
     }
-  }, [game?.playback, playerReady, currentlyPlayingUri, playerId, game?.hostId])
+  }, [game?.playback, playerReady, currentlyPlayingUri, playerId, game?.hostId, useConnectAPI, selectedDevice])
 
   const genCode = () => Math.random().toString(36).substring(2, 8).toUpperCase()
 
@@ -321,7 +373,7 @@ function App() {
         } catch (error) {
           console.error('Login failed:', error)
           localStorage.removeItem('host_intent')
-          alert('Failed to log in with Spotify. Please try again.')
+          alert(`Failed to log in with Spotify.\n\nError: ${error.message}\n\nPlease check console for details.`)
           return
         }
       } else {
@@ -340,7 +392,7 @@ function App() {
           } catch (error) {
             console.error('Login failed:', error)
             localStorage.removeItem('host_intent')
-            alert('Failed to log in with Spotify. Please try again.')
+            alert(`Failed to log in with Spotify.\n\nError: ${error.message}\n\nPlease check console for details.`)
             return
           }
         }
@@ -817,6 +869,105 @@ function App() {
             </div>
             <p className="text-white/60 mt-4 font-medium text-sm">Share this code with players</p>
           </div>
+
+          {/* Device Selector - Show for host when using Connect API (mobile browsers) */}
+          {useConnectAPI && availableDevices.length > 0 && (
+            <div className="relative bg-white/5 backdrop-blur-2xl rounded-3xl p-6 mb-6 shadow-2xl border border-white/10 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-transparent"></div>
+              <h3 className="relative z-10 text-xl font-bold text-purple-400 mb-4 text-center uppercase tracking-wide drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]">Select Playback Device</h3>
+              <p className="relative z-10 text-white/60 text-sm mb-4 text-center">
+                Choose which device will play music during the game
+              </p>
+              <div className="relative z-10 space-y-2 max-h-64 overflow-y-auto no-scrollbar">
+                {availableDevices.map(device => (
+                  <button
+                    key={device.id}
+                    onClick={() => setSelectedDevice(device)}
+                    className={`w-full p-4 rounded-xl transition-all duration-200 ${
+                      selectedDevice?.id === device.id
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30'
+                        : 'bg-white/5 text-white/80 hover:bg-white/10 border border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-left">
+                        <div className="font-semibold">{device.name}</div>
+                        <div className="text-sm opacity-75">{device.type}</div>
+                      </div>
+                      {device.is_active && (
+                        <span className="text-xs bg-green-500/80 px-2 py-1 rounded-full font-semibold">Active</span>
+                      )}
+                      {selectedDevice?.id === device.id && !device.is_active && (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={async () => {
+                  setLoadingDevices(true)
+                  try {
+                    const sessionToken = authService.getSessionToken()
+                    const response = await spotifyConnect.getDevices(sessionToken)
+                    if (response.devices) {
+                      setAvailableDevices(response.devices)
+                      const activeDevice = response.devices.find(d => d.is_active)
+                      if (activeDevice) setSelectedDevice(activeDevice)
+                    }
+                  } catch (error) {
+                    console.error('Failed to refresh devices:', error)
+                  } finally {
+                    setLoadingDevices(false)
+                  }
+                }}
+                disabled={loadingDevices}
+                className="relative z-10 mt-4 w-full text-sm text-purple-400 hover:text-purple-300 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingDevices ? 'Refreshing...' : '🔄 Refresh Devices'}
+              </button>
+            </div>
+          )}
+
+          {/* No devices warning - show when Connect API is needed but no devices */}
+          {useConnectAPI && availableDevices.length === 0 && !loadingDevices && (
+            <div className="relative bg-yellow-500/10 backdrop-blur-2xl rounded-3xl p-6 mb-6 shadow-2xl border border-yellow-500/30 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 via-orange-500/5 to-transparent"></div>
+              <div className="relative z-10 text-center">
+                <svg className="w-12 h-12 mx-auto mb-3 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-lg font-bold text-yellow-400 mb-2">No Spotify Devices Found</h3>
+                <p className="text-white/80 text-sm mb-4">
+                  Please open Spotify on your phone, computer, or speaker, then refresh.
+                </p>
+                <button
+                  onClick={async () => {
+                    setLoadingDevices(true)
+                    try {
+                      const sessionToken = authService.getSessionToken()
+                      const response = await spotifyConnect.getDevices(sessionToken)
+                      if (response.devices) {
+                        setAvailableDevices(response.devices)
+                        const activeDevice = response.devices.find(d => d.is_active)
+                        if (activeDevice) setSelectedDevice(activeDevice)
+                      }
+                    } catch (error) {
+                      console.error('Failed to refresh devices:', error)
+                    } finally {
+                      setLoadingDevices(false)
+                    }
+                  }}
+                  disabled={loadingDevices}
+                  className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 font-semibold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingDevices ? 'Refreshing...' : 'Refresh Devices'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Host Name Input - Premium */}
           {!hostPlayer && (

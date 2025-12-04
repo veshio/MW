@@ -7,15 +7,29 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // Bind to all interfaces - accessible via localhost and 127.0.0.1
     port: 5173,
-    strictPort: true, // DO NOT change port - fail if 5173 is in use
+    strictPort: false, // Allow fallback ports in case 5173 is in use
     proxy: {
+      // Proxy API requests to backend in development
+      // In production, VITE_API_URL must be set to full backend URL
       '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
+        target: process.env.VITE_API_URL || 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false
       }
     }
   },
   build: {
-    sourcemap: true
-  }
+    sourcemap: true,
+    outDir: 'dist',
+    // Ensure environment variables are replaced at build time
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom']
+        }
+      }
+    }
+  },
+  // Define environment variable prefix (Vite automatically includes VITE_* vars)
+  envPrefix: 'VITE_'
 })

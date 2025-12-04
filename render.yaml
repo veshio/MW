@@ -1,0 +1,42 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API Server
+  - type: web
+    name: musical-wheelhouse-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: SPOTIFY_CLIENT_ID
+        sync: false # Set in Render dashboard
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false # Set in Render dashboard
+      - key: SPOTIFY_REDIRECT_URI
+        sync: false # Set to: https://musical-wheelhouse-backend.onrender.com/api/auth/callback
+      - key: FRONTEND_URL
+        sync: false # Set to: https://musical-wheelhouse.onrender.com
+    healthCheckPath: /health
+
+  # Frontend Static Site
+  - type: web
+    name: musical-wheelhouse-frontend
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false # Set to: https://musical-wheelhouse-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

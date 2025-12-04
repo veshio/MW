@@ -9,12 +9,30 @@ const sessions = new Map();
 const SESSION_TTL = 60 * 60 * 1000; // 1 hour
 
 // Getter functions to read env vars at runtime (after dotenv is loaded)
-const getSpotifyConfig = () => ({
-  clientId: process.env.SPOTIFY_CLIENT_ID,
-  clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-  redirectUri: process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/callback',
-  frontendUrl: process.env.FRONTEND_URL || 'http://127.0.0.1:5173'
-});
+const getSpotifyConfig = (req) => {
+  // Check Referer header to detect network requests
+  // Browser sends Referer like "http://192.168.2.14:5173/" or "http://127.0.0.1:5173/"
+  const referer = req?.get('referer') || req?.get('origin') || '';
+  const isNetworkRequest = referer.includes('192.168.2.14');
+
+  console.log('🔍 Request detection:', {
+    referer,
+    origin: req?.get('origin'),
+    host: req?.get('host'),
+    isNetworkRequest
+  });
+
+  return {
+    clientId: process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+    redirectUri: isNetworkRequest
+      ? 'http://192.168.2.14:3001/api/auth/callback'
+      : (process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3001/api/auth/callback'),
+    frontendUrl: isNetworkRequest
+      ? 'http://192.168.2.14:5173'
+      : (process.env.FRONTEND_URL || 'http://127.0.0.1:5173')
+  };
+};
 
 // Required scopes for the app
 const SCOPES = [
@@ -65,7 +83,7 @@ setInterval(cleanupSessions, 10 * 60 * 1000);
  */
 router.get('/login', (req, res) => {
   try {
-    const config = getSpotifyConfig();
+    const config = getSpotifyConfig(req);
 
     // Generate PKCE parameters
     const state = generateRandomString(16);
@@ -104,7 +122,7 @@ router.get('/login', (req, res) => {
  */
 router.get('/callback', async (req, res) => {
   const { code, state, error } = req.query;
-  const config = getSpotifyConfig();
+  const config = getSpotifyConfig(req);
 
   // Handle OAuth error
   if (error) {
@@ -192,7 +210,7 @@ router.get('/callback', async (req, res) => {
  */
 router.post('/refresh', async (req, res) => {
   const { sessionToken } = req.body;
-  const config = getSpotifyConfig();
+  const config = getSpotifyConfig(req);
 
   if (!sessionToken || !sessions.has(sessionToken)) {
     return res.status(401).json({ error: 'Invalid session' });

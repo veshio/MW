@@ -78,10 +78,23 @@ class AuthService {
    */
   async login() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`);
+      const url = `${API_BASE_URL}/api/auth/login`;
+      console.log('Fetching login URL:', url);
+
+      const response = await fetch(url);
+      console.log('Login response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Login response error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
       const data = await response.json();
+      console.log('Login response data:', data);
 
       if (data.authUrl) {
+        console.log('Redirecting to:', data.authUrl);
         // Redirect to Spotify authorization page
         window.location.href = data.authUrl;
       } else {

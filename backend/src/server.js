@@ -27,19 +27,42 @@ import authRoutes from './routes/auth.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// CORS configuration - allow frontend origin
+// CORS configuration - dynamic origin handling
 const corsOptions = {
-  origin: [
-    'http://127.0.0.1:5173', // Local development (127.0.0.1 required by Spotify)
-    'http://127.0.0.1:5174',
-    'http://127.0.0.1:5175',
-    'http://127.0.0.1:5176',
-    'http://localhost:5173', // Fallback for localhost
-    'http://localhost:5174',
-    'http://localhost:5175',
-    'http://localhost:5176',
-    process.env.FRONTEND_URL // Production frontend
-  ].filter(Boolean),
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+
+    const allowedOrigins = [
+      process.env.FRONTEND_URL, // Primary frontend URL from env
+      'http://127.0.0.1:5173',  // Local dev (required by Spotify OAuth)
+      'http://localhost:5173',   // Fallback for localhost
+    ].filter(Boolean);
+
+    // In development, also allow other local ports for flexibility
+    if (process.env.NODE_ENV !== 'production') {
+      allowedOrigins.push(
+        'http://127.0.0.1:5174',
+        'http://127.0.0.1:5175',
+        'http://127.0.0.1:5176',
+        'http://localhost:5174',
+        'http://localhost:5175',
+        'http://localhost:5176'
+      );
+
+      // Allow local network IPs for mobile testing
+      if (origin && origin.match(/^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/)) {
+        return callback(null, true);
+      }
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️  CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -98,8 +121,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
+// Start server - bind to 0.0.0.0 for network access
+app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('═══════════════════════════════════════════');
   console.log('  🎵 Musical Wheelhouse Backend Server');
@@ -107,6 +130,7 @@ app.listen(PORT, () => {
   console.log(`  Port:        ${PORT}`);
   console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`  Frontend:    ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  console.log(`  Network:     http://192.168.2.14:${PORT}`);
   console.log('');
   console.log('  Endpoints:');
   console.log('  GET  /health');
